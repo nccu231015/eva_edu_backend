@@ -1,0 +1,45 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Category {
+  categoryId   Int       @id @default(autoincrement())
+  categoryName String
+  summaries    Summary[]
+  awards       Award[]
+}
+
+model Summary {
+  summaryId   Int      @id @default(autoincrement())
+  categoryId  Int
+  yearStart   Int
+  yearEnd     Int
+  description String
+  category    Category @relation(fields: [categoryId], references: [categoryId])
+}
+
+model Award {
+  awardId          Int      @id @default(autoincrement())
+  categoryId       Int
+  awardYear        Int
+  awardMonth       Int
+  awardTitle       String?
+  awardName        String
+  awardEngName     String
+  awardSource      String
+  awardDescription String?
+  mediaPath        String?
+  order            Int      
+  category         Category @relation(fields: [categoryId], references: [categoryId])
+}
