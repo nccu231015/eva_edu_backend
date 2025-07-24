@@ -18,7 +18,38 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   const { categoryId, awardYear, awardMonth, awardTitle, awardName, awardEngName, awardSource, awardDescription, mediaPath } = req.body;
   
-  const count = await prisma.award.count({ where: { categoryId } });
+  // 獲取同分類的所有獎項，按時間排序
+  const existingAwards = await prisma.award.findMany({
+    where: { categoryId },
+    orderBy: [
+      { awardYear: 'desc' },
+      { awardMonth: 'desc' }
+    ]
+  });
+
+  // 計算新獎項應該插入的位置
+  let newOrder = 0;
+  const newAwardDate = awardYear * 100 + awardMonth;
+  
+  for (let i = 0; i < existingAwards.length; i++) {
+    const existingDate = existingAwards[i].awardYear * 100 + existingAwards[i].awardMonth;
+    if (newAwardDate >= existingDate) {
+      newOrder = i;
+      break;
+    }
+    newOrder = i + 1;
+  }
+
+  // 更新後續獎項的 order
+  await prisma.award.updateMany({
+    where: {
+      categoryId,
+      order: { gte: newOrder }
+    },
+    data: {
+      order: { increment: 1 }
+    }
+  });
 
   const newAward = await prisma.award.create({
     data: {
@@ -31,7 +62,7 @@ router.post('/', async (req, res) => {
       awardSource,
       awardDescription,
       mediaPath,
-      order: count,
+      order: newOrder,
     },
   });
   res.status(201).json(newAward);
@@ -82,9 +113,32 @@ router.patch('/reorder', async (req, res) => {
 // DELETE an award
 router.delete('/:id', async (req, res) => {
   const { id } = req.params;
+  
+  // 先獲取要刪除的獎項資訊
+  const awardToDelete = await prisma.award.findUnique({
+    where: { awardId: parseInt(id) }
+  });
+
+  if (!awardToDelete) {
+    return res.status(404).json({ error: 'Award not found' });
+  }
+
+  // 刪除獎項
   await prisma.award.delete({
     where: { awardId: parseInt(id) },
   });
+
+  // 更新後續獎項的 order（減1）
+  await prisma.award.updateMany({
+    where: {
+      categoryId: awardToDelete.categoryId,
+      order: { gt: awardToDelete.order }
+    },
+    data: {
+      order: { decrement: 1 }
+    }
+  });
+
   res.status(204).send();
 });
 

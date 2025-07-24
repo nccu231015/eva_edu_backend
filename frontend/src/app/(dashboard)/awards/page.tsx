@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Table,
@@ -153,7 +153,7 @@ function AwardDialog({
       formData.append('image', selectedFile);
 
       try {
-        const uploadRes = await fetch('http://localhost:3002/api/upload', {
+        const uploadRes = await fetch('/api/upload', {
           method: 'POST',
           body: formData,
         });
@@ -181,7 +181,7 @@ function AwardDialog({
       mediaPath,
     };
 
-    const url = isEditMode ? `http://localhost:3002/api/awards/${award.awardId}` : 'http://localhost:3002/api/awards';
+    const url = isEditMode ? `/api/awards/${award.awardId}` : '/api/awards';
     const method = isEditMode ? 'PUT' : 'POST';
 
     try {
@@ -342,7 +342,7 @@ function SortableAwardRow({ award, categories, fetchAwards }: { award: Award, ca
     }
 
     try {
-      const res = await fetch(`http://localhost:3002/api/awards/${awardId}`, {
+      const res = await fetch(`/api/awards/${awardId}`, {
         method: 'DELETE',
       });
 
@@ -389,7 +389,8 @@ export default function AwardsPage() {
   const [awards, setAwards] = useState<Award[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [activeTab, setActiveTab] = useState('');
-  const [dateSortDirection, setDateSortDirection] = useState<'desc' | 'asc'>('desc');
+  // 為每個分類維護獨立的排序狀態
+  const [dateSortDirections, setDateSortDirections] = useState<Record<string, 'desc' | 'asc'>>({});
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -398,9 +399,9 @@ export default function AwardsPage() {
     })
   );
 
-  const fetchAwards = async () => {
+  const fetchAwards = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:3002/api/awards');
+      const res = await fetch('/api/awards');
       if (!res.ok) throw new Error('Network response was not ok');
       let data: Award[] = await res.json();
       data = data.sort((a, b) => a.order - b.order);
@@ -409,11 +410,11 @@ export default function AwardsPage() {
       console.error('Failed to fetch awards:', error);
       toast.error('無法讀取獎項資料');
     }
-  };
+  }, []);
 
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:3002/api/categories');
+      const res = await fetch('/api/categories');
       if (!res.ok) throw new Error('Network response was not ok');
       const data = await res.json();
       setCategories(data);
@@ -424,29 +425,63 @@ export default function AwardsPage() {
       console.error('Failed to fetch categories:', error);
       toast.error('無法讀取分類資料');
     }
-  };
+  }, [activeTab]);
 
   useEffect(() => {
     fetchAwards();
     fetchCategories();
-  }, []);
+  }, [fetchAwards, fetchCategories]);
   
   const filteredAwards = useMemo(
     () => awards.filter(award => award.category?.categoryName === activeTab).sort((a,b) => a.order - b.order),
     [awards, activeTab]
   );
 
-  const updateAwardsOrder = async (newAwards: Award[]) => {
-    // Update local state immediately for instant UI feedback
-    setAwards(newAwards);
+  async function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
 
-    const awardsToUpdate = newAwards.map(({ awardId, order }) => ({
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    // 只對當前分類的獎項進行排序
+    const currentCategoryAwards = filteredAwards;
+    const oldIndex = currentCategoryAwards.findIndex((a) => a.awardId === active.id);
+    const newIndex = currentCategoryAwards.findIndex((a) => a.awardId === over.id);
+
+    if (oldIndex === -1 || newIndex === -1) {
+      return;
+    }
+
+    // 重新排序當前分類的獎項
+    const reorderedCategoryAwards = arrayMove(currentCategoryAwards, oldIndex, newIndex);
+    
+    // 重新分配 order 值（只針對當前分類）
+    const updatedCategoryAwards = reorderedCategoryAwards.map((award, index) => ({
+      ...award,
+      order: index,
+    }));
+
+    // 更新全部 awards 陣列，保持其他分類不變
+    const updatedAllAwards = awards.map(award => {
+      const updatedAward = updatedCategoryAwards.find(a => a.awardId === award.awardId);
+      return updatedAward || award;
+    });
+
+    // 立即更新本地狀態
+    setAwards(updatedAllAwards);
+    
+    // 重置日期排序狀態，因為用戶手動排序了
+    setDateSortDirections({ ...dateSortDirections, [activeTab]: 'desc' });
+
+    // 只更新當前分類的獎項到後端
+    const awardsToUpdate = updatedCategoryAwards.map(({ awardId, order }) => ({
       awardId,
       order,
     }));
 
     try {
-      const res = await fetch('http://localhost:3002/api/awards/reorder', {
+      const res = await fetch('/api/awards/reorder', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -461,37 +496,17 @@ export default function AwardsPage() {
     } catch (error) {
       console.error(error);
       toast.error('儲存排序失敗，正在還原...');
-      // Revert state if API call fails
+      // 如果失敗，重新載入資料
       fetchAwards();
     }
-  };
-
-  async function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-
-    if (!over || active.id === over.id) {
-      return;
-    }
-
-    const oldIndex = awards.findIndex((a) => a.awardId === active.id);
-    const newIndex = awards.findIndex((a) => a.awardId === over.id);
-
-    // Use the full awards array for reordering logic
-    const reorderedAwards = arrayMove(awards, oldIndex, newIndex);
-    
-    // Re-assign order based on the new array index
-    const newAwardsWithOrder = reorderedAwards.map((award, index) => ({
-      ...award,
-      order: index,
-    }));
-
-    await updateAwardsOrder(newAwardsWithOrder);
   }
 
   const sortAwardsByDate = async () => {
-    const newDirection = dateSortDirection === 'desc' ? 'asc' : 'desc';
+    const newDirection = dateSortDirections[activeTab] === 'desc' ? 'asc' : 'desc';
 
-    const sorted = [...awards].sort((a, b) => {
+    // 只對當前分類的獎項進行日期排序
+    const currentCategoryAwards = filteredAwards;
+    const sorted = [...currentCategoryAwards].sort((a, b) => {
       const dateA = a.awardYear * 100 + a.awardMonth;
       const dateB = b.awardYear * 100 + b.awardMonth;
       if (newDirection === 'asc') {
@@ -500,13 +515,47 @@ export default function AwardsPage() {
       return dateB - dateA;
     });
 
-    const newAwardsWithOrder = sorted.map((award, index) => ({
+    // 重新分配 order 值（只針對當前分類）
+    const updatedCategoryAwards = sorted.map((award, index) => ({
       ...award,
       order: index,
     }));
 
-    await updateAwardsOrder(newAwardsWithOrder);
-    setDateSortDirection(newDirection);
+    // 更新全部 awards 陣列，保持其他分類不變
+    const updatedAllAwards = awards.map(award => {
+      const updatedAward = updatedCategoryAwards.find(a => a.awardId === award.awardId);
+      return updatedAward || award;
+    });
+
+    // 立即更新本地狀態
+    setAwards(updatedAllAwards);
+
+    // 只更新當前分類的獎項到後端
+    const awardsToUpdate = updatedCategoryAwards.map(({ awardId, order }) => ({
+      awardId,
+      order,
+    }));
+
+    try {
+      const res = await fetch('/api/awards/reorder', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ awards: awardsToUpdate }),
+      });
+
+      if (!res.ok) {
+        throw new Error('儲存排序失敗');
+      }
+      toast.success('獎項排序已儲存');
+      setDateSortDirections({ ...dateSortDirections, [activeTab]: newDirection });
+    } catch (error) {
+      console.error(error);
+      toast.error('儲存排序失敗，正在還原...');
+      // 如果失敗，重新載入資料
+      fetchAwards();
+    }
   };
 
   return (
@@ -543,7 +592,7 @@ export default function AwardsPage() {
                         <TableHead>
                           <Button variant="ghost" onClick={sortAwardsByDate} className="px-2 py-1">
                             年度
-                            {dateSortDirection === 'asc' 
+                            {dateSortDirections[cat.categoryName] === 'asc' 
                               ? <ArrowUp className="inline-block ml-2 h-4 w-4" /> 
                               : <ArrowDown className="inline-block ml-2 h-4 w-4" />
                             }

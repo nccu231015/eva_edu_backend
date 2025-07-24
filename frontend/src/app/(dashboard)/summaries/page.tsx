@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Table,
@@ -84,7 +84,7 @@ function SummaryDialog({
     }
 
     const summaryData = { categoryId, yearStart, yearEnd, description };
-    const url = isEditMode ? `http://localhost:3002/api/summaries/${summary.summaryId}` : 'http://localhost:3002/api/summaries';
+    const url = isEditMode ? `/api/summaries/${summary.summaryId}` : '/api/summaries';
     const method = isEditMode ? 'PUT' : 'POST';
 
     try {
@@ -165,9 +165,9 @@ export default function SummariesPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [activeTab, setActiveTab] = useState('');
 
-  const fetchSummaries = async () => {
+  const fetchSummaries = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:3002/api/summaries');
+      const res = await fetch('/api/summaries');
       if (!res.ok) throw new Error('Network response was not ok');
       const data = await res.json();
       setSummaries(data);
@@ -175,11 +175,11 @@ export default function SummariesPage() {
       console.error('Failed to fetch summaries:', error);
       toast.error('無法讀取年份區段資料');
     }
-  };
+  }, []);
 
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:3002/api/categories');
+      const res = await fetch('/api/categories');
       if (!res.ok) throw new Error('Network response was not ok');
       const data = await res.json();
       setCategories(data);
@@ -190,17 +190,17 @@ export default function SummariesPage() {
       console.error('Failed to fetch categories:', error);
       toast.error('無法讀取分類資料');
     }
-  };
+  }, [activeTab]);
 
   useEffect(() => {
     fetchSummaries();
     fetchCategories();
-  }, []);
+  }, [fetchSummaries, fetchCategories]);
 
   const handleDelete = async (summaryId: number) => {
     if (!confirm('您確定要刪除這個年份區段嗎？')) return;
     try {
-      const res = await fetch(`http://localhost:3002/api/summaries/${summaryId}`, {
+      const res = await fetch(`/api/summaries/${summaryId}`, {
         method: 'DELETE',
       });
       if (!res.ok) throw new Error('刪除失敗');
