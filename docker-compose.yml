@@ -2,14 +2,14 @@ services:
   backend:
     build: ./backend
     ports:
-      - "3002:3001" # Adjusted port to match frontend calls
+      - "3002:3001"
     environment:
       DATABASE_URL: "postgresql://user:password@db:5432/eva_edu"
     depends_on:
       db:
         condition: service_healthy
     volumes:
-      - ./backend/uploads:/usr/src/app/uploads # Persist uploads
+      - ./backend/uploads:/usr/src/app/uploads
       - /usr/src/app/node_modules
 
   frontend:
@@ -24,7 +24,7 @@ services:
       - backend
 
   db:
-    image: postgres:15
+    image: postgres:11  # 改為 PostgreSQL 11
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
@@ -40,4 +40,4 @@ services:
       retries: 5
 
 volumes:
-  postgres_data: 
+  postgres_data:
